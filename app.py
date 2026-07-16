@@ -1,8 +1,15 @@
 from flask import Flask, render_template_string, request, jsonify
 import json
 import os
+import requests  # Нужен для отправки запросов в Telegram API
 
 app = Flask(__name__)
+
+# =====================================================================
+# 🖤 НАСТРОЙКИ TELEGRAM-УВЕДОМЛЕНИЙ (ИНТЕГРИРОВАНО)
+# =====================================================================
+TELEGRAM_BOT_TOKEN = "8721046916:AAEAq4T8cAXm99SojzrVpeqz7izat55tYus"
+TELEGRAM_CHAT_ID = "8464316176"
 
 products = [
     {"id": 1, "name": "ФУТБОЛКА VET@MENTS ANTISOCIAL", "category": "tshirts", "price_eur": 60, "price_uah": 3050, "images": ["https://kappa.lol/zlEwzv"], "description": "Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.", "sizes": ["S", "M", "L", "XL"]},
@@ -65,7 +72,6 @@ HTML_HEADER = """
 </head>
 <body class="antialiased select-none">
   
-  <!-- Навигация -->
   <nav class="fixed top-0 w-full bg-[#020202]/90 backdrop-blur-xl py-6 border-b border-zinc-900 z-50">
     <div class="max-w-7xl mx-auto px-6 flex justify-between items-center">
       <h1 onclick="location.href='/'" class="text-2xl md:text-3xl gothic cursor-pointer tracking-[0.3em] text-zinc-50 glitch-hover transition-all">DEAD ARCHIVE</h1>
@@ -82,12 +88,10 @@ HTML_HEADER = """
 """
 
 HTML_FOOTER = """
-  <!-- Модальное окно корзины -->
   <div id="cart-modal" class="hidden fixed inset-0 bg-black/98 flex items-center justify-center z-50 backdrop-blur-md">
     <div class="bg-[#09090b] w-full max-w-xl p-10 border border-zinc-800 max-h-[90vh] overflow-auto relative">
       <button onclick="toggleCart()" class="absolute top-6 right-6 text-zinc-500 hover:text-zinc-100 text-2xl transition-colors">✕</button>
       
-      <!-- Шаг 1: Просмотр корзины -->
       <div id="cart-main-view">
         <h2 class="text-xl font-black mb-8 tracking-[0.2em] text-center text-zinc-50 uppercase">ВЫБРАННЫЕ АРТИКУЛЫ</h2>
         <div id="cart-items" class="space-y-8"></div>
@@ -98,7 +102,6 @@ HTML_FOOTER = """
         </div>
       </div>
 
-      <!-- Шаг 2: Ввод контактов -->
       <div id="cart-checkout-view" class="hidden">
         <h2 class="text-xl font-black mb-2 tracking-[0.2em] text-center text-zinc-50 uppercase">ИДЕНТИФИКАЦИЯ</h2>
         <p class="text-zinc-500 text-center text-xs tracking-wider mb-8">Оставьте свои координаты для подтверждения заказа</p>
@@ -124,7 +127,6 @@ HTML_FOOTER = """
         </div>
       </div>
 
-      <!-- Шаг 3: Анимация Успеха -->
       <div id="cart-success-view" class="hidden text-center py-12">
         <div class="mb-6 inline-flex items-center justify-center w-16 h-16 border border-zinc-700 bg-zinc-900 text-zinc-100 text-3xl animate-pulse font-sans">
           †
@@ -391,7 +393,6 @@ def product_detail(pid):
     
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-12 items-start">
       
-      <!-- Галерея -->
       <div class="space-y-6">
         {% for img in product.images %}
         <div class="overflow-hidden bg-[#0a0a0a] border border-zinc-900 group">
@@ -400,7 +401,6 @@ def product_detail(pid):
         {% endfor %}
       </div>
       
-      <!-- Контент -->
       <div class="lg:sticky lg:top-36">
         <h1 class="text-xl md:text-2xl font-black text-zinc-100 tracking-wider leading-tight uppercase">{{ product.name }}</h1>
         <p class="text-base mt-4 font-bold text-zinc-300">
@@ -504,9 +504,13 @@ def create_order():
         return jsonify({"success": False, "error": "System fail"}), 400
     
     contacts = data.get('contacts', {})
-    tg = contacts.get('telegram', 'КРИТИЧЕСКАЯ ОШИБКА // НЕ УКАЗАН')
-    phone = contacts.get('phone', 'КРИТИЧЕСКАЯ ОШИБКА // НЕ УКАЗАН')
+    tg = contacts.get('telegram', 'НЕ УКАЗАН')
+    phone = contacts.get('phone', 'НЕ УКАЗАН')
 
+    # Считаем общую стоимость
+    total_eur = sum(item['price_eur'] for item in data['items'])
+    
+    # Лог в консоль Render (на всякий случай)
     print("\n" + "†"*60)
     print("🔮 ЗАШИФРОВАННЫЙ ВХОДЯЩИЙ ЗАКАЗ — СИСТЕМА АКТИВНА 🔮")
     print("†"*60)
@@ -515,19 +519,47 @@ def create_order():
     print(f"   • ТЕЛЕФОН:  {phone}")
     print("-"*60)
     print("📦 ЭЛЕМЕНТЫ МАНИФЕСТА К ОТПРАВКЕ:")
-    
-    total_eur = 0
     for idx, item in enumerate(data['items'], start=1):
-        name = item['name']
-        size = item.get('selectedSize', 'NS')
-        price = item['price_eur']
-        total_eur += price
-        print(f"   [{idx}] {name} // РАЗМЕР: [{size}] // СТОИМОСТЬ: {price} EUR")
-        
+        print(f"   [{idx}] {item['name']} // РАЗМЕР: [{item.get('selectedSize', 'NS')}] // СТОИМОСТЬ: {item['price_eur']} EUR")
     print("-"*60)
     print(f"💰 ОБЩАЯ СУММА ТРАНЗАКЦИИ: {total_eur} EUR")
     print("†"*60 + "\n")
-    
+
+    # =====================================================================
+    # 🖤 ОТПРАВКА КАРТОЧКИ ЗАКАЗА В TELEGRAM
+    # =====================================================================
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        # Строим сообщение с готической версткой (Markdown)
+        tg_message = (
+            "⚠️ *NEW DECREE // НОВЫЙ ЗАКАЗ СИСТЕМЫ*\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👤 *Покупатель:* `{tg}`\n"
+            f"📱 *Телефон:* `{phone}`\n\n"
+            "📦 *Элементы архива:*\n"
+        )
+        
+        for idx, item in enumerate(data['items'], start=1):
+            tg_message += f"• `{item['name']}`\n   Size: *[{item.get('selectedSize', 'NS')}]* — {item['price_eur']} EUR\n\n"
+            
+        tg_message += (
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 *ИТОГО К ОПЛАТЕ:* `{total_eur} EUR`\n"
+            "† *DEAD ARCHIVE SYSTEM RECEPTOR* †"
+        )
+        
+        # Отправляем запрос боту
+        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": tg_message,
+            "parse_mode": "Markdown"
+        }
+        
+        try:
+            requests.post(telegram_url, json=payload, timeout=10)
+        except Exception as e:
+            print(f"Ошибка отправки сообщения в Telegram: {e}")
+
     return jsonify({"success": True})
 
 @app.route('/about')
