@@ -1,15 +1,23 @@
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request, jsonify, redirect
 import json
 import os
-import requests  # Нужен для отправки запросов в Telegram API
+import time
 
 app = Flask(__name__)
+app.secret_key = 'dead_archive_secret_key_2026'
 
-# =====================================================================
-# 🖤 НАСТРОЙКИ TELEGRAM-УВЕДОМЛЕНИЙ (ИНТЕГРИРОВАНО)
-# =====================================================================
-TELEGRAM_BOT_TOKEN = "8721046916:AAEAq4T8cAXm99SojzrVpeqz7izat55tYus"
-TELEGRAM_CHAT_ID = "8464316176"
+# Хранилище заказов
+app.orders_data = []
+
+ACTIVE_SESSIONS = {}
+ONLINE_TIMEOUT = 10
+
+def get_real_online_count():
+    now = time.time()
+    expired_clients = [cid for cid, last_seen in ACTIVE_SESSIONS.items() if now - last_seen > ONLINE_TIMEOUT]
+    for cid in expired_clients:
+        del ACTIVE_SESSIONS[cid]
+    return len(ACTIVE_SESSIONS)
 
 products = [
     {"id": 1, "name": "ФУТБОЛКА VET@MENTS ANTISOCIAL", "category": "tshirts", "price_eur": 60, "price_uah": 3050, "images": ["https://kappa.lol/zlEwzv"], "description": "Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.", "sizes": ["S", "M", "L", "XL"]},
@@ -26,6 +34,32 @@ products = [
     {"id": 12, "name": "СЕРЕБРЯНЫЙ БРАСЛЕТ OPIUM LINK", "category": "accessories", "price_eur": 95, "price_uah": 4600, "images": ["https://picsum.photos/id/435/800/800"], "description": "Плетение из массивных якорных звеньев с чернением. Замок-тогл с выгравированной готической символикой.", "sizes": ["ONE SIZE"]},
 ]
 
+app.products_data = products
+
+lookbooks = [
+    {
+        "id": "look-01",
+        "title": "LOOK // 01: HEAVY METAL OPIUM",
+        "concept": "Многослойный брутальный авангард с уклоном в оверсайз и массивный металлический обвес.",
+        "image": "https://picsum.photos/id/1059/800/1000",
+        "item_ids": [9, 1, 5, 8]
+    },
+    {
+        "id": "look-02",
+        "title": "LOOK // 02: GRAVE LEATHER DIRT",
+        "concept": "Сочетание состаренной кожи, дистресс-хлопка и темной ритуальной символики.",
+        "image": "https://picsum.photos/id/1062/800/1000",
+        "item_ids": [7, 2, 6, 12]
+    },
+    {
+        "id": "look-03",
+        "title": "LOOK // 03: TOTAL DARKNESS ARCHIVE",
+        "concept": "Темный монохромный силуэт для ночного мегаполиса с акцентом на фактуру стираного хлопка.",
+        "image": "https://picsum.photos/id/1025/800/1000",
+        "item_ids": [11, 10, 5]
+    }
+]
+
 HTML_HEADER = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -38,22 +72,89 @@ HTML_HEADER = """
     body { font-family: 'Inter', sans-serif; background:#020202; color:#e4e4e7; }
     .gothic { font-family:'Cinzel', serif; font-weight: 900; }
     
-    .glitch-hover:hover {
-      animation: glitch 0.3s linear infinite;
-      text-shadow: 2px -2px #f00, -2px 2px #00f;
+    /* ПРЕМИАЛЬНАЯ АНИМАЦИЯ КРОВАВОГО ЛОГОТИПА */
+    .blood-logo {
+      position: relative;
+      transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    @keyframes glitch {
-      0% { transform: translate(0) }
-      20% { transform: translate(-2px, 2px) }
-      40% { transform: translate(-2px, -2px) }
-      60% { transform: translate(2px, 2px) }
-      80% { transform: translate(2px, -2px) }
-      100% { transform: translate(0) }
+    .blood-logo:hover {
+      color: #ef4444 !important;
+      text-shadow: 
+        0 0 10px rgba(239, 68, 68, 0.8),
+        0 0 20px rgba(220, 38, 38, 0.6),
+        0 0 40px rgba(153, 27, 27, 0.4);
+    }
+    .blood-logo::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      background: radial-gradient(ellipse at center, rgba(220,38,38,0.9) 0%, rgba(153,27,27,0) 75%);
+      opacity: 0;
+      transform: scaleX(0.4);
+      transition: all 0.4s ease;
+      pointer-events: none;
+    }
+    .blood-logo:hover::after {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+
+    /* Динамические капли крови */
+    .blood-drop {
+      position: absolute;
+      width: 4px;
+      background: linear-gradient(180deg, #ef4444 0%, #991b1b 100%);
+      border-radius: 0 0 4px 4px;
+      box-shadow: 0 0 8px #dc2626;
+      opacity: 0;
+      top: 90%;
+      pointer-events: none;
+    }
+
+    .blood-logo:hover .drop-1 {
+      left: 12%;
+      animation: drip 1.4s infinite cubic-bezier(0.55, 0.085, 0.68, 0.53) 0.1s;
+    }
+    .blood-logo:hover .drop-2 {
+      left: 38%;
+      animation: drip 1.8s infinite cubic-bezier(0.55, 0.085, 0.68, 0.53) 0.4s;
+    }
+    .blood-logo:hover .drop-3 {
+      left: 65%;
+      animation: drip 1.5s infinite cubic-bezier(0.55, 0.085, 0.68, 0.53) 0.25s;
+    }
+    .blood-logo:hover .drop-4 {
+      left: 88%;
+      animation: drip 1.6s infinite cubic-bezier(0.55, 0.085, 0.68, 0.53) 0.5s;
+    }
+
+    @keyframes drip {
+      0% {
+        height: 0px;
+        transform: translateY(0);
+        opacity: 0;
+      }
+      30% {
+        height: 14px;
+        opacity: 1;
+      }
+      80% {
+        height: 22px;
+        transform: translateY(28px);
+        opacity: 0.8;
+      }
+      100% {
+        height: 2px;
+        transform: translateY(40px);
+        opacity: 0;
+      }
     }
 
     .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-    
     .spinner {
       border: 3px solid rgba(255, 255, 255, 0.1);
       border-radius: 50%;
@@ -64,22 +165,42 @@ HTML_HEADER = """
       display: inline-block;
     }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #020202; }
     ::-webkit-scrollbar-thumb { background: #18181b; border: 1px solid #27272a; }
+
+    .cart-bounce {
+      animation: cartBounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes cartBounce {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.18); border-color: #ef4444; }
+      100% { transform: scale(1); }
+    }
   </style>
 </head>
 <body class="antialiased select-none">
-  
   <nav class="fixed top-0 w-full bg-[#020202]/90 backdrop-blur-xl py-6 border-b border-zinc-900 z-50">
     <div class="max-w-7xl mx-auto px-6 flex justify-between items-center">
-      <h1 onclick="location.href='/'" class="text-2xl md:text-3xl gothic cursor-pointer tracking-[0.3em] text-zinc-50 glitch-hover transition-all">DEAD ARCHIVE</h1>
-      <div class="flex gap-8 text-xs font-bold items-center text-zinc-400 tracking-widest">
+      <div onclick="location.href='/'" class="blood-logo inline-block cursor-pointer py-1">
+        <h1 class="text-2xl md:text-3xl gothic tracking-[0.3em] text-zinc-50 transition-colors">DEAD ARCHIVE</h1>
+        <span class="blood-drop drop-1"></span>
+        <span class="blood-drop drop-2"></span>
+        <span class="blood-drop drop-3"></span>
+        <span class="blood-drop drop-4"></span>
+      </div>
+      <div class="flex gap-4 md:gap-8 text-xs font-bold items-center text-zinc-400 tracking-widest">
+        <div class="hidden sm:flex items-center gap-2 bg-zinc-950 border border-zinc-800/80 px-3 py-1.5 rounded-full text-[10px] text-zinc-400">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span>ОНЛАЙН: <span id="online-counter" class="text-zinc-100 font-mono font-black">1</span></span>
+        </div>
         <a href="/shop" class="hover:text-zinc-50 transition-colors uppercase">МАГАЗИН</a>
-        <a href="/about" class="hover:text-zinc-50 transition-colors uppercase">ИНФО</a>
-        <a href="/support" class="hover:text-zinc-50 transition-colors uppercase">ПОДДЕРЖКА</a>
-        <button onclick="toggleCart()" class="text-xs font-bold hover:text-zinc-50 transition-all flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-4 py-2.5 rounded-sm">
+        <a href="/lookbook" class="hover:text-zinc-50 transition-colors uppercase text-red-500 font-black">LOOKBOOK</a>
+        <a href="/history" class="hover:text-zinc-50 transition-colors uppercase text-zinc-300">ИСТОРИЯ ЗАКАЗОВ</a>
+        <button id="cart-nav-btn" onclick="toggleCart()" class="text-xs font-bold hover:text-zinc-50 transition-all flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-4 py-2.5 rounded-sm">
           КОРЗИНА // <span class="text-zinc-100" id="count">0</span>
         </button>
       </div>
@@ -91,7 +212,6 @@ HTML_FOOTER = """
   <div id="cart-modal" class="hidden fixed inset-0 bg-black/98 flex items-center justify-center z-50 backdrop-blur-md">
     <div class="bg-[#09090b] w-full max-w-xl p-10 border border-zinc-800 max-h-[90vh] overflow-auto relative">
       <button onclick="toggleCart()" class="absolute top-6 right-6 text-zinc-500 hover:text-zinc-100 text-2xl transition-colors">✕</button>
-      
       <div id="cart-main-view">
         <h2 class="text-xl font-black mb-8 tracking-[0.2em] text-center text-zinc-50 uppercase">ВЫБРАННЫЕ АРТИКУЛЫ</h2>
         <div id="cart-items" class="space-y-8"></div>
@@ -101,11 +221,9 @@ HTML_FOOTER = """
           </button>
         </div>
       </div>
-
       <div id="cart-checkout-view" class="hidden">
         <h2 class="text-xl font-black mb-2 tracking-[0.2em] text-center text-zinc-50 uppercase">ИДЕНТИФИКАЦИЯ</h2>
         <p class="text-zinc-500 text-center text-xs tracking-wider mb-8">Оставьте свои координаты для подтверждения заказа</p>
-        
         <div class="space-y-6">
           <div>
             <label class="block text-[10px] font-black text-zinc-400 mb-2 tracking-widest uppercase">TELEGRAM USERNAME</label>
@@ -116,7 +234,6 @@ HTML_FOOTER = """
             <input type="text" id="cust-phone" placeholder="+380..." class="w-full bg-zinc-950 border border-zinc-800 px-4 py-4 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 font-bold tracking-wider">
           </div>
         </div>
-
         <div class="mt-10 flex gap-4">
           <button onclick="backToCartItems()" class="w-1/3 py-4 border border-zinc-850 text-zinc-400 text-xs font-bold hover:text-white hover:border-zinc-600 transition-all uppercase">
             НАЗАД
@@ -126,7 +243,6 @@ HTML_FOOTER = """
           </button>
         </div>
       </div>
-
       <div id="cart-success-view" class="hidden text-center py-12">
         <div class="mb-6 inline-flex items-center justify-center w-16 h-16 border border-zinc-700 bg-zinc-900 text-zinc-100 text-3xl animate-pulse font-sans">
           †
@@ -141,20 +257,42 @@ HTML_FOOTER = """
           </p>
         </div>
       </div>
-
     </div>
   </div>
 
   <script>
     let cart = JSON.parse(localStorage.getItem('cart')) || [];
-    
+    function initRealOnlineCounter() {
+      let clientId = sessionStorage.getItem('da_client_id');
+      if (!clientId) {
+        clientId = 'usr_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+        sessionStorage.setItem('da_client_id', clientId);
+      }
+      function sendHeartbeat() {
+        fetch('/api/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId })
+        })
+        .then(res => res.json())
+        .then(data => {
+          const el = document.getElementById('online-counter');
+          if (el && data.online !== undefined) {
+            el.textContent = data.online;
+          }
+        })
+        .catch(() => {});
+      }
+      sendHeartbeat();
+      setInterval(sendHeartbeat, 4000);
+    }
     function playGlitchSound() {
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         oscillator.type = 'square';
-        oscillator.frequency.setValueAtTime(120, audioCtx.currentTime); 
+        oscillator.frequency.setValueAtTime(120, audioCtx.currentTime);
         oscillator.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.08);
         gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
@@ -164,15 +302,12 @@ HTML_FOOTER = """
         oscillator.stop(audioCtx.currentTime + 0.08);
       } catch(e) {}
     }
-
     function updateCartUI() {
       const countEl = document.getElementById('count');
       if (countEl) countEl.textContent = cart.length;
-
       const container = document.getElementById('cart-items');
       if (!container) return;
       container.innerHTML = '';
-      
       if (cart.length === 0) {
         container.innerHTML = '<p class="text-zinc-600 text-center py-12 text-xs font-bold tracking-widest">АРХИВНОЕ ХРАНИЛИЩЕ ПУСТО</p>';
         const btn = document.getElementById('checkout-btn');
@@ -182,71 +317,62 @@ HTML_FOOTER = """
         const btn = document.getElementById('checkout-btn');
         if(btn) btn.style.display = 'block';
       }
-
       cart.forEach((item, i) => {
         const div = document.createElement('div');
         div.className = "flex gap-6 border-b border-zinc-900 pb-6 items-center fade-in";
+        const imgUrl = (item.images && item.images.length > 0) ? item.images[0] : '';
         div.innerHTML = `
-          <img src="${item.images[0]}" class="w-16 h-20 object-cover border border-zinc-800 transition-all duration-500">
+          <img src="${imgUrl}" class="w-16 h-20 object-cover border border-zinc-800 transition-all duration-500">
           <div class="flex-1 min-w-0">
-            <p class="font-black text-xs tracking-wider text-zinc-100 truncate uppercase">${item.name}</p>
-            <p class="text-zinc-400 text-xs mt-1 font-bold">${item.price_eur} EUR</p>
-            <p class="text-[10px] text-zinc-500 tracking-wider mt-2 font-bold uppercase">РАЗМЕР // [${item.selectedSize || 'NS'}]</p>
+            <p class="font-black text-xs tracking-wider text-zinc-100 truncate uppercase">${item.name || 'АРТИКУЛ'}</p>
+            <p class="text-zinc-400 text-xs mt-1 font-bold">${item.price_eur || 0} EUR</p>
+            <p class="text-[10px] text-zinc-500 tracking-wider mt-2 font-bold uppercase">РАЗМЕР // [${item.selectedSize || 'L'}]</p>
           </div>
           <button onclick="removeFromCart(${i})" class="text-zinc-600 hover:text-zinc-200 text-xl transition-colors px-2">✕</button>
         `;
         container.appendChild(div);
       });
     }
-
     function toggleCart() {
       playGlitchSound();
       document.getElementById('cart-modal').classList.toggle('hidden');
       resetCartViews();
       updateCartUI();
     }
-
     function removeFromCart(i) {
       playGlitchSound();
       cart.splice(i, 1);
       localStorage.setItem('cart', JSON.stringify(cart));
       updateCartUI();
     }
-
     function openCheckoutForm() {
       playGlitchSound();
       if (cart.length === 0) return;
       document.getElementById('cart-main-view').classList.add('hidden');
       document.getElementById('cart-checkout-view').classList.remove('hidden');
     }
-
     function backToCartItems() {
       playGlitchSound();
       document.getElementById('cart-checkout-view').classList.add('hidden');
       document.getElementById('cart-main-view').classList.remove('hidden');
     }
-
     function resetCartViews() {
       document.getElementById('cart-success-view').classList.add('hidden');
       document.getElementById('cart-checkout-view').classList.add('hidden');
       document.getElementById('cart-main-view').classList.remove('hidden');
     }
-
     function submitOrder() {
       const tg = document.getElementById('cust-tg').value.trim();
       const phone = document.getElementById('cust-phone').value.trim();
       const btn = document.getElementById('submit-order-btn');
-
       if (!tg && !phone) return;
-
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> ШИФРОВАНИЕ СИСТЕМЫ...';
       playGlitchSound();
-
       fetch('/create_order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           items: cart,
           contacts: { telegram: tg, phone: phone }
         })
@@ -255,45 +381,58 @@ HTML_FOOTER = """
       .then(data => {
         if (data.success) {
           setTimeout(() => {
+            let myOrders = JSON.parse(localStorage.getItem('my_orders')) || [];
+            if (data.order_id) {
+              myOrders.push(data.order_id);
+              localStorage.setItem('my_orders', JSON.stringify(myOrders));
+            }
+
             cart = [];
             localStorage.setItem('cart', JSON.stringify(cart));
             updateCartUI();
-            
             document.getElementById('cust-tg').value = '';
             document.getElementById('cust-phone').value = '';
-            
             btn.disabled = false;
-            btn.innerText = 'ПОДТВЕРДИТЬ ЗАКАЗ';
-            
+            btn.innerText = 'ОТПРАВИТЬ ЗАПРОС';
             document.getElementById('cart-checkout-view').classList.add('hidden');
             document.getElementById('cart-success-view').classList.remove('hidden');
-            
             playGlitchSound();
             setTimeout(playGlitchSound, 1500);
-
             setTimeout(() => {
               const modal = document.getElementById('cart-modal');
               if(!modal.classList.contains('hidden')) {
                 toggleCart();
               }
             }, 4500);
-
           }, 1500);
+        } else {
+          alert(data.error || "Ошибка сохранения заказа");
+          btn.disabled = false;
+          btn.innerText = 'ОТПРАВИТЬ ЗАПРОС';
         }
       })
       .catch(error => {
         btn.disabled = false;
-        btn.innerText = 'ПОДТВЕРДИТЬ ЗАКАЗ';
+        btn.innerText = 'ОТПРАВИТЬ ЗАПРОС';
       });
     }
-
     window.addEventListener('DOMContentLoaded', () => {
       updateCartUI();
+      initRealOnlineCounter();
     });
   </script>
 </body>
 </html>
 """
+
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    data = request.get_json() or {}
+    client_id = data.get('client_id')
+    if client_id:
+        ACTIVE_SESSIONS[client_id] = time.time()
+    online_count = get_real_online_count()
+    return jsonify({"online": online_count})
 
 @app.route('/')
 def home():
@@ -303,7 +442,10 @@ def home():
     <div class="relative text-center z-10 px-6">
       <h1 class="text-4xl md:text-[6.5rem] gothic tracking-[0.25em] text-zinc-100 leading-none">DEAD ARCHIVE</h1>
       <p class="text-xs tracking-[0.4em] text-zinc-500 mt-10 font-black uppercase">ПРОТОКОЛ СИСТЕМЫ DE-2026 // ПРИВАТНЫЙ ДРОП</p>
-      <a href="/shop" onclick="playGlitchSound()" class="mt-20 inline-block px-16 py-5 border border-zinc-800 hover:border-zinc-300 hover:bg-zinc-100 hover:text-black text-xs tracking-[0.3em] transition-all duration-500 text-zinc-100 font-black uppercase">ВОЙТИ В СИСТЕМУ</a>
+      <div class="mt-20 flex flex-wrap justify-center gap-6">
+        <a href="/shop" onclick="playGlitchSound()" class="px-12 py-5 border border-zinc-800 hover:border-zinc-300 hover:bg-zinc-100 hover:text-black text-xs tracking-[0.3em] transition-all duration-500 text-zinc-100 font-black uppercase">ВОЙТИ В МАГАЗИН</a>
+        <a href="/lookbook" onclick="playGlitchSound()" class="px-12 py-5 bg-red-950/40 border border-red-900 hover:bg-red-900 hover:text-white text-xs tracking-[0.3em] transition-all duration-500 text-zinc-200 font-black uppercase">LOOKBOOK // СТАЙЛИНГ</a>
+      </div>
     </div>
   </section>
 ''' + HTML_FOOTER)
@@ -313,278 +455,308 @@ def shop():
     return render_template_string(HTML_HEADER + '''
   <section class="pt-40 pb-24 px-6 max-w-7xl mx-auto">
     <h2 class="text-2xl gothic text-center mb-16 tracking-[0.3em] text-zinc-100">КОЛЛЕКЦИЯ</h2>
-    
     <div class="flex justify-center gap-6 mb-16 flex-wrap text-[10px] tracking-[0.25em] font-black uppercase">
       <button onclick="filterCategory('all')" id="btn-all" class="category-btn pb-2 border-b-2 border-zinc-100 text-zinc-100 transition-all">ВСЕ ПРЕДМЕТЫ</button>
       <button onclick="filterCategory('tshirts')" id="btn-tshirts" class="category-btn pb-2 border-b-2 border-transparent text-zinc-500 hover:text-zinc-200 transition-all">ФУТБОЛКИ</button>
       <button onclick="filterCategory('outerwear')" id="btn-outerwear" class="category-btn pb-2 border-b-2 border-transparent text-zinc-500 hover:text-zinc-200 transition-all">ВЕРХНЯЯ ОДЕЖДА</button>
       <button onclick="filterCategory('accessories')" id="btn-accessories" class="category-btn pb-2 border-b-2 border-transparent text-zinc-500 hover:text-zinc-200 transition-all">АКСЕССУАРЫ</button>
     </div>
-
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-12" id="grid"></div>
   </section>
-
   <script>
     const products = {{ products|tojson|safe }};
     let currentCategory = 'all';
-    
+    const selectedSizes = {};
+
+    function selectSize(productId, size, btn) {
+      selectedSizes[productId] = size;
+      document.querySelectorAll('.size-btn-' + productId).forEach(b => {
+        b.classList.remove('bg-zinc-100', 'text-black', 'border-zinc-100');
+        b.classList.add('bg-zinc-900', 'text-zinc-400', 'border-zinc-800');
+      });
+      btn.classList.remove('bg-zinc-900', 'text-zinc-400', 'border-zinc-800');
+      btn.classList.add('bg-zinc-100', 'text-black', 'border-zinc-100');
+      
+      const sizeWarn = document.getElementById('size-warn-' + productId);
+      if (sizeWarn) sizeWarn.classList.add('hidden');
+    }
+
     function renderProducts() {
       const grid = document.getElementById('grid');
       grid.innerHTML = '';
-      
       const filtered = currentCategory === 'all' ? products : products.filter(p => p.category === currentCategory);
-      
       if(filtered.length === 0) {
         grid.innerHTML = '<p class="text-zinc-600 text-center col-span-4 py-20 text-xs font-bold tracking-widest">СЕГМЕНТ КОЛЛЕКЦИИ ПУСТ</p>';
         return;
       }
-
       filtered.forEach(p => {
         const div = document.createElement('div');
         div.className = "group relative cursor-pointer flex flex-col justify-between bg-zinc-950 border border-zinc-900 p-4 fade-in transition-all duration-500 hover:shadow-[0_0_20px_rgba(127,29,29,0.45)] hover:border-red-950";
+        
+        let sizesHtml = '<div class="flex gap-1.5 mt-3 flex-wrap" onclick="event.stopPropagation()">';
+        p.sizes.forEach(sz => {
+          sizesHtml += `<button type="button" onclick="selectSize(${p.id}, '${sz}', this)" class="size-btn-${p.id} px-2.5 py-1 text-[9px] font-black border border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-500 transition-all uppercase">${sz}</button>`;
+        });
+        sizesHtml += '</div>';
+
         div.innerHTML = `
           <div>
             <div class="overflow-hidden bg-[#0a0a0a] aspect-[3/4] border border-zinc-900">
-              <img src="${p.images[0]}" class="w-full h-full object-cover group-hover:brightness-50 group-hover:scale-105 transition-all duration-700 ease-out">
+              <img src="${p.images[0]}" class="w-full h-full object-cover group-hover:brightness-75 group-hover:scale-110 transition-all duration-700 ease-out">
             </div>
             <div class="mt-4 space-y-1">
               <h3 class="text-xs font-black tracking-wider text-zinc-300 uppercase group-hover:text-zinc-50 transition-colors">${p.name}</h3>
               <p class="text-xs text-zinc-500 font-bold">${p.price_eur} EUR</p>
+              <p class="text-[10px] text-zinc-500 leading-relaxed pt-2 border-t border-zinc-900/60 font-medium">${p.description || ''}</p>
+            </div>
+            <div class="mt-3">
+              <p class="text-[9px] font-black text-zinc-500 uppercase tracking-wider">ВЫБЕРИТЕ РАЗМЕР:</p>
+              ${sizesHtml}
+              <p id="size-warn-${p.id}" class="hidden text-[9px] text-red-500 font-bold mt-1.5 uppercase tracking-wider">! ВЫБЕРИТЕ РАЗМЕР</p>
             </div>
           </div>
-          <button onclick="event.stopPropagation(); playGlitchSound(); location.href='/product/${p.id}'" class="mt-6 w-full py-3.5 border border-zinc-900 text-zinc-400 group-hover:border-red-900 group-hover:text-zinc-100 transition-all duration-500 text-[10px] font-black tracking-[0.2em] uppercase">
-            АНАЛИЗ ПРЕДМЕТА
+          <button onclick="event.stopPropagation(); addToCart(${p.id}, this)" class="mt-6 w-full py-3.5 border border-zinc-900 text-zinc-400 group-hover:border-red-900 group-hover:text-zinc-100 transition-all duration-500 text-[10px] font-black tracking-[0.2em] uppercase">
+            ДОБАВИТЬ В КОРЗИНУ
           </button>
         `;
-        div.onclick = () => { playGlitchSound(); location.href = `/product/${p.id}`; };
         grid.appendChild(div);
       });
+    }
+
+    function addToCart(productId, btnElement) {
+      const item = products.find(p => p.id === productId);
+      const chosenSize = selectedSizes[productId];
+
+      if (!chosenSize) {
+        playGlitchSound();
+        const sizeWarn = document.getElementById('size-warn-' + productId);
+        if (sizeWarn) sizeWarn.classList.remove('hidden');
+        return;
+      }
+
+      if (item) {
+        playGlitchSound();
+
+        if (btnElement) {
+          const origText = btnElement.innerText;
+          btnElement.innerText = '✓ ДОБАВЛЕНО В КОРЗИНУ';
+          btnElement.classList.add('bg-zinc-100', 'text-black', 'border-zinc-100');
+          setTimeout(() => {
+            btnElement.innerText = origText;
+            btnElement.classList.remove('bg-zinc-100', 'text-black', 'border-zinc-100');
+          }, 1200);
+        }
+
+        const navCartBtn = document.getElementById('cart-nav-btn');
+        if (navCartBtn) {
+          navCartBtn.classList.remove('cart-bounce');
+          void navCartBtn.offsetWidth;
+          navCartBtn.classList.add('cart-bounce');
+        }
+
+        cart.push({ ...item, selectedSize: chosenSize });
+        localStorage.setItem('cart', JSON.stringify(cart));
+        updateCartUI();
+      }
     }
 
     function filterCategory(cat) {
       playGlitchSound();
       currentCategory = cat;
-      
       document.querySelectorAll('.category-btn').forEach(b => {
         b.classList.remove('border-zinc-100', 'text-zinc-100');
         b.classList.add('border-transparent', 'text-zinc-500');
       });
-      
       const activeBtn = document.getElementById('btn-' + cat);
       if(activeBtn) {
         activeBtn.classList.add('border-zinc-100', 'text-zinc-100');
         activeBtn.classList.remove('border-transparent', 'text-zinc-500');
       }
-      
       renderProducts();
     }
-
     window.addEventListener('DOMContentLoaded', renderProducts);
   </script>
-''' + HTML_FOOTER, products=products)
+''' + HTML_FOOTER, products=app.products_data)
 
-@app.route('/product/<int:pid>')
-def product_detail(pid):
-    product = next((p for p in products if p['id'] == pid), None)
-    if not product: return "НЕ НАЙДЕНО", 404
+@app.route('/lookbook')
+def lookbook():
     return render_template_string(HTML_HEADER + '''
-  <div class="max-w-5xl mx-auto p-6 pt-40 pb-24">
-    <a href="/shop" onclick="playGlitchSound()" class="text-[10px] font-black tracking-[0.2em] text-zinc-500 hover:text-zinc-200 transition-colors uppercase">← НАЗАД К КОЛЛЕКЦИИ</a>
-    
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-12 items-start">
-      
-      <div class="space-y-6">
-        {% for img in product.images %}
-        <div class="overflow-hidden bg-[#0a0a0a] border border-zinc-900 group">
-          <img src="{{ img }}" onclick="toggleZoom(this)" class="w-full zoomable-img cursor-zoom-in object-cover transition-all duration-700 group-hover:brightness-75">
+  <section class="pt-40 pb-24 px-6 max-w-7xl mx-auto">
+    <div class="text-center max-w-3xl mx-auto mb-20">
+      <span class="text-[10px] font-black tracking-[0.3em] text-red-600 uppercase">LIVE ACTIVITY STATUS // STYLING PROTOCOL</span>
+      <h2 class="text-3xl md:text-5xl gothic tracking-[0.2em] text-zinc-100 mt-4 mb-6">LOOKBOOK // СТАЙЛИНГ</h2>
+      <p class="text-xs text-zinc-500 tracking-widest leading-relaxed uppercase">
+        Авангардные комбинации предметов из архива 2026 года.
+      </p>
+    </div>
+    <div class="space-y-32">
+      {% for lb in lookbooks %}
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center bg-zinc-950/60 border border-zinc-900 p-8">
+        <div class="lg:col-span-6 overflow-hidden border border-zinc-800">
+          <img src="{{ lb.image }}" class="w-full h-[600px] object-cover hover:scale-105 transition-all duration-700">
         </div>
-        {% endfor %}
-      </div>
-      
-      <div class="lg:sticky lg:top-36">
-        <h1 class="text-xl md:text-2xl font-black text-zinc-100 tracking-wider leading-tight uppercase">{{ product.name }}</h1>
-        <p class="text-base mt-4 font-bold text-zinc-300">
-          {{ product.price_eur }} EUR 
-          <span class="text-xs text-zinc-500 ml-3 tracking-[0.1em]">• {{ product.price_uah }} UAH</span>
-        </p>
-        
-        <div class="mt-6 pt-6 border-t border-zinc-900">
-          <p class="text-sm text-zinc-400 leading-relaxed font-medium">{{ product.description }}</p>
-        </div>
-        
-        <div class="mt-8">
-          <p class="mb-4 text-[10px] tracking-[0.15em] font-black text-zinc-500 uppercase">ДОСТУПНЫЕ РАЗМЕРЫ</p>
-          <div class="flex gap-3 flex-wrap" id="size-buttons">
-            {% for size in product.sizes %}
-            <button onclick="selectSize(this)" data-size="{{ size }}" class="px-5 py-3 border border-zinc-800 hover:border-zinc-500 text-zinc-400 text-xs font-bold tracking-wider transition-all duration-300">{{ size }}</button>
-            {% endfor %}
+        <div class="lg:col-span-6 space-y-8">
+          <div>
+            <span class="text-[10px] text-zinc-500 font-black tracking-widest uppercase">[ ГОТОВЫЙ СЕТ // ARCHIVE SET ]</span>
+            <h3 class="text-2xl font-black text-zinc-100 tracking-wider uppercase mt-2">{{ lb.title }}</h3>
+            <p class="text-xs text-zinc-400 mt-4 tracking-wider leading-relaxed font-medium">{{ lb.concept }}</p>
           </div>
         </div>
-        
-        <button id="add-to-cart-btn" onclick="addToCart()" class="mt-10 w-full py-5 bg-zinc-100 text-black text-xs font-black tracking-[0.2em] hover:bg-black hover:text-white hover:border hover:border-zinc-700 transition-all duration-500 uppercase">
-          ДОБАВИТЬ В АРХИВ
-        </button>
       </div>
+      {% endfor %}
     </div>
-  </div>
+  </section>
+''' + HTML_FOOTER, lookbooks=lookbooks, products=app.products_data)
+
+@app.route('/history')
+def history():
+    return render_template_string(HTML_HEADER + '''
+  <section class="pt-40 pb-24 px-6 max-w-5xl mx-auto min-h-screen">
+    <div class="text-center max-w-2xl mx-auto mb-16">
+      <h2 class="text-3xl gothic tracking-[0.25em] text-zinc-100 mb-3">ИСТОРИЯ ЗАКАЗОВ</h2>
+      <p class="text-xs text-zinc-500 tracking-widest uppercase font-bold">Статус транзакций твоего аккаунта</p>
+    </div>
+
+    <div id="history-container" class="space-y-8">
+      <p class="text-center text-xs text-zinc-600 font-bold tracking-widest py-12 uppercase">ЗАГРУЗКА ДАННЫХ ИЗ СИСТЕМЫ...</p>
+    </div>
+  </section>
 
   <script>
-    let selectedSize = null;
+    function loadOrderHistory() {
+      const container = document.getElementById('history-container');
+      const myOrderIds = JSON.parse(localStorage.getItem('my_orders')) || [];
 
-    function toggleZoom(img) {
-      playGlitchSound();
-      if (img.classList.contains('zoomed')) {
-        img.classList.remove('zoomed');
-        img.style.transform = "scale(1)";
-        img.classList.replace('cursor-zoom-out', 'cursor-zoom-in');
-      } else {
-        document.querySelectorAll('.zoomable-img').forEach(el => {
-          el.classList.remove('zoomed');
-          el.style.transform = "scale(1)";
-          el.classList.replace('cursor-zoom-out', 'cursor-zoom-in');
-        });
-        img.classList.add('zoomed');
-        img.style.transform = "scale(1.3)";
-        img.classList.replace('cursor-zoom-in', 'cursor-zoom-out');
+      if (myOrderIds.length === 0) {
+        container.innerHTML = `
+          <div class="bg-zinc-950 border border-zinc-900 p-12 text-center">
+            <p class="text-xs text-zinc-600 font-black tracking-widest uppercase">У ВАС ПОКА НЕТ АКТИВНЫХ ИЛИ СТАРЫХ ЗАКАЗОВ</p>
+            <a href="/shop" class="inline-block mt-6 px-8 py-3 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[10px] font-black tracking-widest hover:bg-zinc-100 hover:text-black transition-all uppercase">ПЕРЕЙТИ В МАГАЗИН</a>
+          </div>
+        `;
+        return;
       }
-    }
 
-    function selectSize(btn) {
-      playGlitchSound();
-      document.querySelectorAll('#size-buttons button').forEach(b => {
-        b.classList.remove('bg-zinc-100', 'text-black', 'border-zinc-100');
-        b.classList.add('border-zinc-800', 'text-zinc-400');
+      fetch('/get_user_orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: myOrderIds })
+      })
+      .then(res => res.json())
+      .then(orders => {
+        if (!orders || orders.length === 0) {
+          container.innerHTML = `
+            <div class="bg-zinc-950 border border-zinc-900 p-12 text-center">
+              <p class="text-xs text-zinc-600 font-black tracking-widest uppercase">ЗАКАЗЫ НЕ НАЙДЕНЫ В БАЗЕ СЕРВЕРА</p>
+              <p class="text-[10px] text-zinc-700 mt-2 font-bold uppercase">(Сервер был перезапущен и временная память очистилась)</p>
+            </div>
+          `;
+          return;
+        }
+
+        container.innerHTML = '';
+        orders.reverse().forEach(order => {
+          const div = document.createElement('div');
+          div.className = "bg-zinc-950 border border-zinc-800 p-6 md:p-8 space-y-6 fade-in";
+          
+          let itemsHtml = '';
+          (order.items || []).forEach(item => {
+            itemsHtml += `
+              <div class="flex justify-between items-center text-xs border-b border-zinc-900/80 pb-2">
+                <span class="text-zinc-300 font-bold uppercase">${item.name} <span class="text-zinc-500">([${item.selectedSize || 'L'}])</span></span>
+                <span class="text-zinc-400 font-mono">${item.price_eur} EUR</span>
+              </div>
+            `;
+          });
+
+          const tgVal = (order.contacts && order.contacts.telegram) ? order.contacts.telegram : '—';
+          const phoneVal = (order.contacts && order.contacts.phone) ? order.contacts.phone : '—';
+
+          div.innerHTML = `
+            <div class="flex flex-col md:flex-row justify-between md:items-center gap-4 border-b border-zinc-900 pb-4">
+              <div>
+                <span class="text-xs font-black bg-zinc-800 text-zinc-200 px-3 py-1">ЗАКАЗ #${order.id}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-zinc-500 font-black uppercase tracking-wider">СТАТУС:</span>
+                <span class="text-xs font-black uppercase tracking-widest px-3 py-1 bg-red-950/40 border border-red-900 text-red-200">${order.status || 'В обработке'}</span>
+              </div>
+            </div>
+
+            <div class="space-y-3">
+              <p class="text-[10px] text-zinc-500 font-black uppercase tracking-wider">АРТИКУЛЫ В ЗАКАЗЕ:</p>
+              ${itemsHtml}
+            </div>
+
+            <div class="flex justify-between items-center pt-4 border-t border-zinc-900">
+              <div class="text-[10px] text-zinc-500 uppercase font-bold">
+                TG: ${tgVal} // ТЕЛ: ${phoneVal}
+              </div>
+              <div class="text-sm font-black text-zinc-100 tracking-wider">
+                ИТОГО: ${order.total} EUR
+              </div>
+            </div>
+          `;
+          container.appendChild(div);
+        });
+      })
+      .catch(() => {
+        container.innerHTML = '<p class="text-center text-xs text-red-500 font-bold uppercase">ОШИБКА ЗАГРУЗКИ ИСТОРИИ</p>';
       });
-      btn.classList.add('bg-zinc-100', 'text-black', 'border-zinc-100');
-      selectedSize = btn.getAttribute('data-size');
     }
 
-    function addToCart() {
-      if (!selectedSize) return;
-      playGlitchSound();
-      
-      const p = {{ product|tojson|safe }};
-      p.selectedSize = selectedSize;
-
-      let localCart = JSON.parse(localStorage.getItem('cart')) || [];
-      localCart.push(p);
-      localStorage.setItem('cart', JSON.stringify(localCart));
-
-      cart = localCart;
-      updateCartUI(); 
-      
-      const addBtn = document.getElementById('add-to-cart-btn');
-      const originalText = addBtn.innerText;
-      
-      addBtn.disabled = true;
-      addBtn.style.backgroundColor = '#7f1d1d'; 
-      addBtn.style.color = '#fff';
-      addBtn.innerText = 'ТОВАР НАХОДИТСЯ В КОРЗИНЕ // †';
-      
-      setTimeout(() => {
-        addBtn.disabled = false;
-        addBtn.style.backgroundColor = '';
-        addBtn.style.color = '';
-        addBtn.innerText = originalText;
-      }, 2000);
-      
-      selectedSize = null;
-      document.querySelectorAll('#size-buttons button').forEach(b => {
-        b.classList.remove('bg-zinc-100', 'text-black');
-        b.classList.add('text-zinc-400');
-      });
-    }
+    window.addEventListener('DOMContentLoaded', loadOrderHistory);
   </script>
-''' + HTML_FOOTER, product=product)
+''' + HTML_FOOTER)
 
 @app.route('/create_order', methods=['POST'])
 def create_order():
-    data = request.get_json()
-    if not data or 'items' not in data:
-        return jsonify({"success": False, "error": "System fail"}), 400
-    
-    contacts = data.get('contacts', {})
-    tg = contacts.get('telegram', 'НЕ УКАЗАН')
-    phone = contacts.get('phone', 'НЕ УКАЗАН')
-
-    # Считаем общую стоимость
-    total_eur = sum(item['price_eur'] for item in data['items'])
-    
-    # Лог в консоль Render (на всякий случай)
-    print("\n" + "†"*60)
-    print("🔮 ЗАШИФРОВАННЫЙ ВХОДЯЩИЙ ЗАКАЗ — СИСТЕМА АКТИВНА 🔮")
-    print("†"*60)
-    print(f"👤 ЦИФРОВЫЕ КООРДИНАТЫ КЛИЕНТА:")
-    print(f"   • TELEGRAM: {tg}")
-    print(f"   • ТЕЛЕФОН:  {phone}")
-    print("-"*60)
-    print("📦 ЭЛЕМЕНТЫ МАНИФЕСТА К ОТПРАВКЕ:")
-    for idx, item in enumerate(data['items'], start=1):
-        print(f"   [{idx}] {item['name']} // РАЗМЕР: [{item.get('selectedSize', 'NS')}] // СТОИМОСТЬ: {item['price_eur']} EUR")
-    print("-"*60)
-    print(f"💰 ОБЩАЯ СУММА ТРАНЗАКЦИИ: {total_eur} EUR")
-    print("†"*60 + "\n")
-
-    # =====================================================================
-    # 🖤 ОТПРАВКА КАРТОЧКИ ЗАКАЗА В TELEGRAM
-    # =====================================================================
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        # Строим сообщение с готической версткой (Markdown)
-        tg_message = (
-            "⚠️ *NEW DECREE // НОВЫЙ ЗАКАЗ СИСТЕМЫ*\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"👤 *Покупатель:* `{tg}`\n"
-            f"📱 *Телефон:* `{phone}`\n\n"
-            "📦 *Элементы архива:*\n"
-        )
+    try:
+        data = request.get_json(silent=True) or {}
+        items = data.get('items', [])
+        contacts = data.get('contacts', {})
         
-        for idx, item in enumerate(data['items'], start=1):
-            tg_message += f"• `{item['name']}`\n   Size: *[{item.get('selectedSize', 'NS')}]* — {item['price_eur']} EUR\n\n"
+        if not items:
+            return jsonify({"success": False, "error": "Корзина пуста"}), 400
             
-        tg_message += (
-            "━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 *ИТОГО К ОПЛАТЕ:* `{total_eur} EUR`\n"
-            "† *DEAD ARCHIVE SYSTEM RECEPTOR* †"
-        )
+        total_price = 0
+        for item in items:
+            if isinstance(item, dict):
+                price = item.get('price_eur', 0)
+                try:
+                    total_price += int(price)
+                except (ValueError, TypeError):
+                    pass
         
-        # Отправляем запрос боту
-        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": tg_message,
-            "parse_mode": "Markdown"
+        order_id = len(app.orders_data) + 1
+        new_order = {
+            "id": order_id,
+            "items": items,
+            "contacts": contacts,
+            "total": total_price,
+            "status": "В обработке",
+            "timestamp": time.time()
         }
         
-        try:
-            requests.post(telegram_url, json=payload, timeout=10)
-        except Exception as e:
-            print(f"Ошибка отправки сообщения в Telegram: {e}")
+        app.orders_data.append(new_order)
+        return jsonify({"success": True, "order_id": order_id})
+    except Exception as e:
+        print(f"CRITICAL ORDER ERROR: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
-    return jsonify({"success": True})
+@app.route('/get_user_orders', methods=['POST'])
+def get_user_orders():
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids', [])
+    user_orders = [o for o in app.orders_data if o.get('id') in ids]
+    return jsonify(user_orders)
 
-@app.route('/about')
-def about():
-    return render_template_string(HTML_HEADER + '''
-  <section class="h-screen flex items-center justify-center px-6 text-center">
-    <div>
-      <h2 class="text-2xl gothic text-zinc-100 mb-8 tracking-[0.3em]">КОНТЕКСТ АРХИВА</h2>
-      <p class="max-w-2xl text-zinc-500 tracking-wider leading-relaxed text-sm font-medium">Мы развертываем бруталистские архивные предметы одежды и фрагменты современной подземной культуры. Каждый дроп разрушает привычные границы люксовой моды.</p>
-    </div>
-  </section>
-''' + HTML_FOOTER)
-
-@app.route('/support')
-def support():
-    return render_template_string(HTML_HEADER + '''
-  <section class="h-screen flex items-center justify-center px-6 text-center">
-    <div>
-      <h2 class="text-2xl gothic text-zinc-100 mb-8 tracking-[0.3em]">ЗАЩИЩЕННАЯ СВЯЗЬ</h2>
-      <p class="max-w-xl text-zinc-500 tracking-wider leading-relaxed text-sm font-medium mb-6">Для крипто-транзакций, оптовых закупок или приватных сделок:</p>
-      <p class="text-base text-zinc-200 font-black tracking-widest">SUPPORT@DEADARCHIVE.COM</p>
-    </div>
-  </section>
-''' + HTML_FOOTER)
+# Регистрация админки
+try:
+    from admin_routes import admin_bp
+    app.register_blueprint(admin_bp)
+except Exception as e:
+    print(f"Ошибка загрузки админ-панели: {e}")
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(debug=True)
