@@ -6,7 +6,7 @@ import time
 app = Flask(__name__)
 app.secret_key = 'dead_archive_secret_key_2026'
 
-# Временное хранилище в памяти (или можно заменить на json-файл)
+# Временное хранилище в памяти
 app.orders_data = []
 ACTIVE_SESSIONS = {}
 ONLINE_TIMEOUT = 10
@@ -60,13 +60,19 @@ def create_order():
     app.orders_data.append(order)
     return jsonify({"success": True, "order_id": order["id"]})
 
-# Админ-панель
-@app.route('/admin')
+# Админ-панель с нормальной формой входа
+@app.route('/admin', methods=['GET', 'POST'])
 def admin():
-    # Простейшая защита по паролю через query-параметр ?pass=deadarchive2026
-    if request.args.get('pass') != 'deadarchive2026':
-        return "Доступ запрещен. Укажите правильный пароль в ссылке, например: /admin?pass=deadarchive2026", 403
-    
+    if request.method == 'POST':
+        if request.form.get('password') == 'deadarchive2026':
+            session['admin_logged'] = True
+            return redirect(url_for('admin'))
+        else:
+            return render_template_string(LOGIN_HTML, error="Неверный пароль")
+            
+    if not session.get('admin_logged'):
+        return render_template_string(LOGIN_HTML, error="")
+
     orders_html = ""
     for o in app.orders_data:
         orders_html += f"<li>Заказ #{o['id']} на сумму {o['total']} ({o['time']}) — Покупатель: {o['customer']}</li>"
@@ -129,13 +135,39 @@ INDEX_HTML = """
             .then(data => alert('Заказ #' + data.order_id + ' успешно оформлен!'));
         }
 
-        // Пинг для онлайн счетчика
         setInterval(() => {
             fetch('/api/ping', {method: 'POST'})
                 .then(res => res.json())
                 .then(data => { document.getElementById('count').innerText = data.online; });
         }, 5000);
     </script>
+</body>
+</html>
+"""
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход в админку | DEAD ARCHIVE</title>
+    <style>
+        body { background: #111; color: #fff; font-family: monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-box { background: #1a1a1a; padding: 30px; border: 1px solid #333; width: 300px; }
+        input { width: 100%; padding: 10px; background: #000; border: 1px solid #444; color: #fff; margin-top: 10px; box-sizing: border-box; }
+        button { background: #fff; color: #000; border: none; padding: 10px; width: 100%; font-weight: bold; margin-top: 15px; cursor: pointer; }
+        .error { color: #ff5555; font-size: 12px; margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h3>ВХОД В АДМИНКУ</h3>
+        <form method="POST">
+            <input type="password" name="password" placeholder="Введите пароль" required>
+            <button type="submit">ВОЙТИ</button>
+            {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        </form>
+    </div>
 </body>
 </html>
 """
