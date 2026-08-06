@@ -165,7 +165,7 @@ HTML_FOOTER = """
         <div id="cart-items" class="space-y-8"></div>
         <div class="mt-10 border-t border-zinc-900 pt-8">
           <button onclick="openCheckoutForm()" id="checkout-btn" class="w-full py-5 bg-zinc-100 text-black text-xs font-black tracking-[0.2em] hover:bg-black hover:text-white hover:border hover:border-zinc-700 transition-all uppercase">
-            ОФОРМИТЬ ЗАКАЗ СИСТЕМЫ
+            ОФОРМИТЬ ЗАКАЗ
           </button>
         </div>
       </div>
