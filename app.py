@@ -385,7 +385,7 @@ def create_order():
     app.orders_data.append(order_record)
     return jsonify({"success": True, "order_id": order_id})
 
-ADMIN_PASSWORD = "secret_opium_password"
+ADMIN_PASSWORD = "0879385"
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
