@@ -6,7 +6,81 @@ import time
 app = Flask(__name__)
 app.secret_key = 'dead_archive_secret_key_2026'
 
-app.orders_data = []
+# Пути к файлам для постоянного хранения данных
+PRODUCTS_FILE = 'products.json'
+ORDERS_FILE = 'orders.json'
+
+def load_products():
+    if os.path.exists(PRODUCTS_FILE):
+        try:
+            with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    # Дефолтные товары, если файла еще нет
+    return [
+        {
+            "id": 1, 
+            "name": "ФУТБОЛКА VET@MENTS ANTISOCIAL", 
+            "category": "tshirts", 
+            "price_eur": 60, 
+            "price_uah": 3050, 
+            "images": ["https://kappa.lol/zlEwzv", "https://picsum.photos/id/1015/800/800"], 
+            "description": "Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.", 
+            "sizes": ["S", "M", "L", "XL"]
+        },
+        {
+            "id": 2, 
+            "name": "ФУТБОЛКА VET@MENTS.COM", 
+            "category": "tshirts", 
+            "price_eur": 60, 
+            "price_uah": 3050, 
+            "images": ["https://kappa.lol/34ieZw", "https://kappa.lol/gJtShU"], 
+            "description": "Классический свободный крой. Дистресс-эффект с потертостями по краям. Фирменная вышивка на спине.", 
+            "sizes": ["S", "M", "L"]
+        },
+        {
+            "id": 3, 
+            "name": "ФУТБОЛКА VET@MENTS VITAL EXISTENCE", 
+            "category": "tshirts", 
+            "price_eur": 60, 
+            "price_uah": 3050, 
+            "images": ["https://kappa.lol/61Hm4e"], 
+            "description": "Готический шрифтовой принт. Заниженная линия плеча, плотный воротник.", 
+            "sizes": ["M", "L", "XL"]
+        },
+        {
+            "id": 5, 
+            "name": "СЕРЕБРЯНАЯ ЦЕПЬ С КРЕСТОМ", 
+            "category": "accessories", 
+            "price_eur": 85, 
+            "price_uah": 4100, 
+            "images": ["https://picsum.photos/id/180/800/800"], 
+            "description": "Массивное серебро .925 пробы. Детализированный авангардный крест в готическом стиле.", 
+            "sizes": ["ONE SIZE"]
+        }
+    ]
+
+def save_products(products):
+    with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(products, f, ensure_ascii=False, indent=4)
+
+def load_orders():
+    if os.path.exists(ORDERS_FILE):
+        try:
+            with open(ORDERS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+def save_orders(orders):
+    with open(ORDERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(orders, f, ensure_ascii=False, indent=4)
+
+app.products_data = load_products()
+app.orders_data = load_orders()
+
 ACTIVE_SESSIONS = {}
 ONLINE_TIMEOUT = 10
 
@@ -16,51 +90,6 @@ def get_real_online_count():
     for cid in expired_clients:
         del ACTIVE_SESSIONS[cid]
     return len(ACTIVE_SESSIONS)
-
-products = [
-    {
-        "id": 1, 
-        "name": "ФУТБОЛКА VET@MENTS ANTISOCIAL", 
-        "category": "tshirts", 
-        "price_eur": 60, 
-        "price_uah": 3050, 
-        "images": ["https://kappa.lol/zlEwzv", "https://picsum.photos/id/1015/800/800"], 
-        "description": "Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.", 
-        "sizes": ["S", "M", "L", "XL"]
-    },
-    {
-        "id": 2, 
-        "name": "ФУТБОЛКА VET@MENTS.COM", 
-        "category": "tshirts", 
-        "price_eur": 60, 
-        "price_uah": 3050, 
-        "images": ["https://kappa.lol/34ieZw", "https://kappa.lol/gJtShU"], 
-        "description": "Классический свободный крой. Дистресс-эффект с потертостями по краям. Фирменная вышивка на спине.", 
-        "sizes": ["S", "M", "L"]
-    },
-    {
-        "id": 3, 
-        "name": "ФУТБОЛКА VET@MENTS VITAL EXISTENCE", 
-        "category": "tshirts", 
-        "price_eur": 60, 
-        "price_uah": 3050, 
-        "images": ["https://kappa.lol/61Hm4e"], 
-        "description": "Готический шрифтовой принт. Заниженная линия плеча, плотный воротник.", 
-        "sizes": ["M", "L", "XL"]
-    },
-    {
-        "id": 5, 
-        "name": "СЕРЕБРЯНАЯ ЦЕПЬ С КРЕСТОМ", 
-        "category": "accessories", 
-        "price_eur": 85, 
-        "price_uah": 4100, 
-        "images": ["https://picsum.photos/id/180/800/800"], 
-        "description": "Массивное серебро .925 пробы. Детализированный авангардный крест в готическом стиле.", 
-        "sizes": ["ONE SIZE"]
-    }
-]
-
-app.products_data = products
 
 lookbooks = [
     {
@@ -383,6 +412,7 @@ def create_order():
         "time": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     app.orders_data.append(order_record)
+    save_orders(app.orders_data)
     return jsonify({"success": True, "order_id": order_id})
 
 ADMIN_PASSWORD = "0879385"
@@ -422,6 +452,71 @@ def admin_login():
     </html>
     ''', error=error)
 
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('is_admin', None)
+    return redirect(url_for('admin_login'))
+
+@app.route('/admin/add_product', methods=['POST'])
+def add_product():
+    if not session.get('is_admin'):
+        return redirect(url_for('admin_login'))
+    
+    try:
+        new_id = max([p['id'] for p in app.products_data], default=0) + 1
+        name = request.form.get('name')
+        price_eur = int(request.form.get('price_eur', 0))
+        price_uah = int(request.form.get('price_uah', 0))
+        category = request.form.get('category')
+        image = request.form.get('image')
+        sizes_str = request.form.get('sizes', 'S, M, L, XL')
+        sizes = [s.strip() for s in sizes_str.split(',')]
+        description = request.form.get('description', '')
+
+        new_item = {
+            "id": new_id,
+            "name": name,
+            "category": category,
+            "price_eur": price_eur,
+            "price_uah": price_uah,
+            "images": [image],
+            "description": description,
+            "sizes": sizes
+        }
+        app.products_data.append(new_item)
+        save_products(app.products_data)
+    except Exception as e:
+        print("Error adding product:", e)
+
+    return redirect(url_for('admin_panel', tab='products'))
+
+@app.route('/admin/edit_product', methods=['POST'])
+def edit_product():
+    if not session.get('is_admin'):
+        return redirect(url_for('admin_login'))
+    
+    try:
+        pid = int(request.form.get('id', 0))
+        for p in app.products_data:
+            if p['id'] == pid:
+                p['name'] = request.form.get('name')
+                p['price_eur'] = int(request.form.get('price_eur', 0))
+                p['price_uah'] = int(request.form.get('price_uah', 0))
+                p['category'] = request.form.get('category')
+                img_url = request.form.get('image')
+                if img_url:
+                    p['images'] = [img_url]
+                sizes_str = request.form.get('sizes', '')
+                if sizes_str:
+                    p['sizes'] = [s.strip() for s in sizes_str.split(',')]
+                p['description'] = request.form.get('description', '')
+                break
+        save_products(app.products_data)
+    except Exception as e:
+        print("Error editing product:", e)
+
+    return redirect(url_for('admin_panel', tab='products'))
+
 @app.route('/admin/', methods=['GET'])
 @app.route('/admin', methods=['GET'])
 def admin_panel():
@@ -432,17 +527,19 @@ def admin_panel():
     if action == 'del_product':
         pid = int(request.args.get('id', 0))
         app.products_data = [p for p in app.products_data if p['id'] != pid]
+        save_products(app.products_data)
         return redirect(url_for('admin_panel', tab='products'))
     elif action == 'del_order':
         oid = request.args.get('id')
         app.orders_data = [o for o in app.orders_data if o['id'] != oid]
+        save_orders(app.orders_data)
         return redirect(url_for('admin_panel', tab='orders'))
 
     tab = request.args.get('tab', 'orders')
     edit_id = request.args.get('edit_id', type=int)
-    editing_product = None
+    edit_product_obj = None
     if edit_id:
-        editing_product = next((p for p in app.products_data if p['id'] == edit_id), None)
+        edit_product_obj = next((p for p in app.products_data if p['id'] == edit_id), None)
         
     return render_template_string('''
     <!DOCTYPE html>
@@ -508,47 +605,47 @@ def admin_panel():
           {% endif %}
 
         {% elif tab == 'products' %}
-          {% if edit_product %}
+          {% if edit_product_obj %}
             <div class="mb-10 bg-zinc-950 border border-red-900/50 p-8 max-w-2xl">
               <div class="flex justify-between items-center mb-6">
-                <h2 class="text-lg font-bold text-zinc-200 tracking-wider">РЕДАКТИРОВАНИЕ АРТИКУЛА #{{ edit_product.id }}</h2>
+                <h2 class="text-lg font-bold text-zinc-200 tracking-wider">РЕДАКТИРОВАНИЕ АРТИКУЛА #{{ edit_product_obj.id }}</h2>
                 <a href="/admin?tab=products" class="text-xs text-zinc-500 hover:text-white uppercase font-bold">ОТМЕНИТЬ</a>
               </div>
               <form action="/admin/edit_product" method="POST" class="space-y-6">
-                <input type="hidden" name="id" value="{{ edit_product.id }}">
+                <input type="hidden" name="id" value="{{ edit_product_obj.id }}">
                 <div>
                   <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Название товара</label>
-                  <input type="text" name="name" value="{{ edit_product.name }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:border-zinc-400">
+                  <input type="text" name="name" value="{{ edit_product_obj.name }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100 focus:outline-none focus:border-zinc-400">
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                   <div>
                     <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Цена (EUR)</label>
-                    <input type="number" name="price_eur" value="{{ edit_product.price_eur }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
+                    <input type="number" name="price_eur" value="{{ edit_product_obj.price_eur }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
                   </div>
                   <div>
                     <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Цена (UAH)</label>
-                    <input type="number" name="price_uah" value="{{ edit_product.price_uah }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
+                    <input type="number" name="price_uah" value="{{ edit_product_obj.price_uah }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
                   </div>
                 </div>
                 <div>
                   <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Категория</label>
                   <select name="category" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
-                    <option value="tshirts" {% if edit_product.category == 'tshirts' %}selected{% endif %}>Футболки (tshirts)</option>
-                    <option value="outerwear" {% if edit_product.category == 'outerwear' %}selected{% endif %}>Верхняя одежда (outerwear)</option>
-                    <option value="accessories" {% if edit_product.category == 'accessories' %}selected{% endif %}>Аксессуары (accessories)</option>
+                    <option value="tshirts" {% if edit_product_obj.category == 'tshirts' %}selected{% endif %}>Футболки (tshirts)</option>
+                    <option value="outerwear" {% if edit_product_obj.category == 'outerwear' %}selected{% endif %}>Верхняя одежда (outerwear)</option>
+                    <option value="accessories" {% if edit_product_obj.category == 'accessories' %}selected{% endif %}>Аксессуары (accessories)</option>
                   </select>
                 </div>
                 <div>
                   <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Ссылка на картинку (URL)</label>
-                  <input type="text" name="image" value="{{ edit_product.images[0] }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
+                  <input type="text" name="image" value="{{ edit_product_obj.images[0] }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
                 </div>
                 <div>
                   <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Размеры (через запятую)</label>
-                  <input type="text" name="sizes" value="{{ edit_product.sizes|join(', ') }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
+                  <input type="text" name="sizes" value="{{ edit_product_obj.sizes|join(', ') }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
                 </div>
                 <div>
                   <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Описание</label>
-                  <textarea name="description" rows="3" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">{{ edit_product.description }}</textarea>
+                  <textarea name="description" rows="3" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">{{ edit_product_obj.description }}</textarea>
                 </div>
                 <button type="submit" class="w-full py-4 bg-zinc-100 text-black font-black text-xs tracking-widest hover:bg-black hover:text-white hover:border hover:border-zinc-700 transition-all uppercase">СОХРАНИТЬ ИЗМЕНЕНИЯ</button>
               </form>
@@ -610,65 +707,14 @@ def admin_panel():
               <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Описание</label>
               <textarea name="description" rows="3" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100"></textarea>
             </div>
-            <button type="submit" class="w-full py-4 bg-zinc-100 text-black font-black text-xs tracking-widest hover:bg-black hover:text-white hover:border hover:border-zinc-700 transition-all uppercase">ДОБАВИТЬ В АРХИВ</button>
+            <button type="submit" class="w-full py-4 bg-zinc-100 text-black font-black text-xs tracking-widest hover:bg-black hover:text-white hover:border hover:border-zinc-700 transition-all uppercase">ДОБАВИТЬ В КАТАЛОГ</button>
           </form>
         {% endif %}
 
       </div>
     </body>
     </html>
-    ''', tab=tab, orders=app.orders_data, products=app.products_data, edit_product=editing_product)
-
-@app.route('/admin/add_product', methods=['POST'])
-def add_product():
-    if not session.get('is_admin'):
-        return redirect(url_for('admin_login'))
-    
-    new_id = max([p['id'] for p in app.products_data], default=0) + 1
-    name = request.form.get('name')
-    price_eur = int(request.form.get('price_eur', 0))
-    price_uah = int(request.form.get('price_uah', 0))
-    category = request.form.get('category')
-    image = request.form.get('image')
-    sizes = [s.strip() for s in request.form.get('sizes', 'S,M,L').split(',')]
-    description = request.form.get('description')
-
-    new_item = {
-        "id": new_id,
-        "name": name,
-        "category": category,
-        "price_eur": price_eur,
-        "price_uah": price_uah,
-        "images": [image],
-        "description": description,
-        "sizes": sizes
-    }
-    app.products_data.append(new_item)
-    return redirect(url_for('admin_panel', tab='products'))
-
-@app.route('/admin/edit_product', methods=['POST'])
-def edit_product():
-    if not session.get('is_admin'):
-        return redirect(url_for('admin_login'))
-    
-    pid = int(request.form.get('id', 0))
-    for p in app.products_data:
-        if p['id'] == pid:
-            p['name'] = request.form.get('name')
-            p['price_eur'] = int(request.form.get('price_eur', 0))
-            p['price_uah'] = int(request.form.get('price_uah', 0))
-            p['category'] = request.form.get('category')
-            p['images'] = [request.form.get('image')]
-            p['sizes'] = [s.strip() for s in request.form.get('sizes', '').split(',')]
-            p['description'] = request.form.get('description')
-            break
-            
-    return redirect(url_for('admin_panel', tab='products'))
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('is_admin', None)
-    return redirect(url_for('admin_login'))
+    ''', tab=tab, orders=app.orders_data, products=app.products_data, edit_product_obj=edit_product_obj)
 
 if __name__ == '__main__':
     app.run(debug=True)
