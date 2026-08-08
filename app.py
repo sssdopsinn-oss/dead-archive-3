@@ -1,69 +1,83 @@
 from flask import Flask, render_template_string, request, jsonify, redirect, session, url_for
-import json
+from flask_sqlalchemy import SQLAlchemy
 import os
 import time
 
 app = Flask(__name__)
 app.secret_key = 'dead_archive_secret_key_2026'
 
-# Пути к файлам для постоянного хранения данных
-PRODUCTS_FILE = 'products.json'
-ORDERS_FILE = 'orders.json'
+# Настройка базы данных SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
-def load_products():
-    if os.path.exists(PRODUCTS_FILE):
-        try:
-            with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return data
-        except Exception as e:
-            print(f"Ошибка чтения products.json: {e}")
-            pass
-    # Дефолтные товары, если файла еще нет
-    return [
-        {
-            "id": 1, 
-            "name": "ФУТБОЛКА VET@MENTS ANTISOCIAL", 
-            "category": "tshirts", 
-            "price_eur": 60, 
-            "price_uah": 3050, 
-            "images": ["https://kappa.lol/zlEwzv", "https://picsum.photos/id/1015/800/800"], 
-            "colors": ["Черный", "Серый"],
-            "description": "Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.", 
-            "sizes": ["S", "M", "L", "XL"]
-        },
-        {
-            "id": 2, 
-            "name": "ФУТБОЛКА VET@MENTS.COM", 
-            "category": "tshirts", 
-            "price_eur": 60, 
-            "price_uah": 3050, 
-            "images": ["https://kappa.lol/34ieZw", "https://kappa.lol/gJtShU"], 
-            "colors": ["Черный"],
-            "description": "Классический свободный крой. Дистресс-эффект с потертостями по краям. Фирменная вышивка на спине.", 
-            "sizes": ["S", "M", "L"]
+# Модели базы данных
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(50), nullable=False)
+    price_eur = db.Column(db.Integer, nullable=False)
+    price_uah = db.Column(db.Integer, nullable=False)
+    images_str = db.Column(db.Text, nullable=False)  # Ссылки через запятую или JSON
+    colors_str = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    sizes_str = db.Column(db.String(200), nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "category": self.category,
+            "price_eur": self.price_eur,
+            "price_uah": self.price_uah,
+            "images": [i.strip() for i in self.images_str.split(',') if i.strip()],
+            "colors": [c.strip() for c in self.colors_str.split(',') if c.strip()],
+            "description": self.description or "",
+            "sizes": [s.strip() for s in self.sizes_str.split(',') if s.strip()]
         }
-    ]
 
-def save_products(products):
-    with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(products, f, ensure_ascii=False, indent=4)
+class Order(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    items_json = db.Column(db.Text, nullable=False)
+    contacts_json = db.Column(db.Text, nullable=False)
+    time_str = db.Column(db.String(50), nullable=False)
 
-def load_orders():
-    if os.path.exists(ORDERS_FILE):
-        try:
-            with open(ORDERS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return data
-        except Exception as e:
-            print(f"Ошибка чтения orders.json: {e}")
-    return []
+    def to_dict(self):
+        import json
+        return {
+            "id": self.id,
+            "items": json.loads(self.items_json),
+            "contacts": json.loads(self.contacts_json),
+            "time": self.time_str
+        }
 
-def save_orders(orders):
-    with open(ORDERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(orders, f, ensure_ascii=False, indent=4)
+# Создаем таблицы и дефолтные товары, если база пустая
+with app.app_context():
+    db.create_all()
+    if Product.query.count() == 0:
+        p1 = Product(
+            name="ФУТБОЛКА VET@MENTS ANTISOCIAL",
+            category="tshirts",
+            price_eur=60,
+            price_uah=3050,
+            images_str="https://kappa.lol/zlEwzv, https://picsum.photos/id/1015/800/800",
+            colors_str="Черный, Серый",
+            description="Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.",
+            sizes_str="S, M, L, XL"
+        )
+        p2 = Product(
+            name="ФУТБОЛКА VET@MENTS.COM",
+            category="tshirts",
+            price_eur=60,
+            price_uah=3050,
+            images_str="https://kappa.lol/34ieZw, https://kappa.lol/gJtShU",
+            colors_str="Черный",
+            description="Классический свободный крой. Дистресс-эффект с потертостями по краям. Фирменная вышивка на спине.",
+            sizes_str="S, M, L"
+        )
+        db.session.add(p1)
+        db.session.add(p2)
+        db.session.commit()
 
 ACTIVE_SESSIONS = {}
 ONLINE_TIMEOUT = 10
@@ -295,7 +309,7 @@ def home():
 
 @app.route('/shop')
 def shop():
-    products = load_products()
+    products = [p.to_dict() for p in Product.query.all()]
     return render_template_string(HTML_HEADER + '''
   <section class="pt-40 pb-24 px-6 max-w-7xl mx-auto">
     <h2 class="text-3xl gothic text-center mb-16 tracking-[0.3em] text-zinc-100">КОЛЛЕКЦИЯ</h2>
@@ -432,17 +446,19 @@ def lookbook():
 
 @app.route('/create_order', methods=['POST'])
 def create_order():
+    import json
     data = request.get_json() or {}
     order_id = "ORD-" + str(int(time.time()))[-5:]
-    orders = load_orders()
-    order_record = {
-        "id": order_id,
-        "items": data.get("items", []),
-        "contacts": data.get("contacts", {}),
-        "time": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
-    orders.append(order_record)
-    save_orders(orders)
+    
+    new_order = Order(
+        id=order_id,
+        items_json=json.dumps(data.get("items", []), ensure_ascii=False),
+        contacts_json=json.dumps(data.get("contacts", {}), ensure_ascii=False),
+        time_str=time.strftime("%Y-%m-%d %H:%M:%S")
+    )
+    db.session.add(new_order)
+    db.session.commit()
+    
     return jsonify({"success": True, "order_id": order_id})
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "0879385")
@@ -493,44 +509,35 @@ def add_product():
         return redirect(url_for('admin_login'))
     
     try:
-        products = load_products()
-        new_id = max([p['id'] for p in products], default=0) + 1
         name = request.form.get('name')
         price_eur = int(request.form.get('price_eur', 0))
         price_uah = int(request.form.get('price_uah', 0))
         category = request.form.get('category')
         
-        # Сбор картинок (до 3 штук)
         img1 = request.form.get('image_1', '').strip()
         img2 = request.form.get('image_2', '').strip()
         img3 = request.form.get('image_3', '').strip()
         images = [i for i in [img1, img2, img3] if i]
         if not images:
             images = ["https://picsum.photos/id/1015/800/800"]
+        images_str = ", ".join(images)
 
-        # Сбор цветов
         colors_str = request.form.get('colors', 'Черный')
-        colors = [c.strip() for c in colors_str.split(',') if c.strip()]
-
-        # Сбор размеров
         sizes_str = request.form.get('sizes', 'S, M, L, XL')
-        sizes = [s.strip() for s in sizes_str.split(',') if s.strip()]
-        
         description = request.form.get('description', '')
 
-        new_item = {
-            "id": new_id,
-            "name": name,
-            "category": category,
-            "price_eur": price_eur,
-            "price_uah": price_uah,
-            "images": images,
-            "colors": colors,
-            "description": description,
-            "sizes": sizes
-        }
-        products.append(new_item)
-        save_products(products)
+        new_item = Product(
+            name=name,
+            category=category,
+            price_eur=price_eur,
+            price_uah=price_uah,
+            images_str=images_str,
+            colors_str=colors_str,
+            description=description,
+            sizes_str=sizes_str
+        )
+        db.session.add(new_item)
+        db.session.commit()
     except Exception as e:
         print("Error adding product:", e)
 
@@ -543,35 +550,30 @@ def edit_product():
     
     try:
         pid = int(request.form.get('id', 0))
-        products = load_products()
-        for p in products:
-            if p['id'] == pid:
-                p['name'] = request.form.get('name')
-                p['price_eur'] = int(request.form.get('price_eur', 0))
-                p['price_uah'] = int(request.form.get('price_uah', 0))
-                p['category'] = request.form.get('category')
+        p = Product.query.get(pid)
+        if p:
+            p.name = request.form.get('name')
+            p.price_eur = int(request.form.get('price_eur', 0))
+            p.price_uah = int(request.form.get('price_uah', 0))
+            p.category = request.form.get('category')
+            
+            img1 = request.form.get('image_1', '').strip()
+            img2 = request.form.get('image_2', '').strip()
+            img3 = request.form.get('image_3', '').strip()
+            new_images = [i for i in [img1, img2, img3] if i]
+            if new_images:
+                p.images_str = ", ".join(new_images)
+
+            colors_str = request.form.get('colors', '')
+            if colors_str:
+                p.colors_str = colors_str
+
+            sizes_str = request.form.get('sizes', '')
+            if sizes_str:
+                p.sizes_str = sizes_str
                 
-                # Обновление картинок
-                img1 = request.form.get('image_1', '').strip()
-                img2 = request.form.get('image_2', '').strip()
-                img3 = request.form.get('image_3', '').strip()
-                new_images = [i for i in [img1, img2, img3] if i]
-                if new_images:
-                    p['images'] = new_images
-
-                # Обновление цветов
-                colors_str = request.form.get('colors', '')
-                if colors_str:
-                    p['colors'] = [c.strip() for c in colors_str.split(',') if c.strip()]
-
-                # Обновление размеров
-                sizes_str = request.form.get('sizes', '')
-                if sizes_str:
-                    p['sizes'] = [s.strip() for s in sizes_str.split(',') if s.strip()]
-                    
-                p['description'] = request.form.get('description', '')
-                break
-        save_products(products)
+            p.description = request.form.get('description', '')
+            db.session.commit()
     except Exception as e:
         print("Error editing product:", e)
 
@@ -583,26 +585,32 @@ def admin_panel():
     if not session.get('is_admin'):
         return redirect(url_for('admin_login'))
     
-    products = load_products()
-    orders = load_orders()
+    products = [p.to_dict() for p in Product.query.all()]
+    orders = [o.to_dict() for o in Order.query.all()]
 
     action = request.args.get('action')
     if action == 'del_product':
         pid = int(request.args.get('id', 0))
-        products = [p for p in products if p['id'] != pid]
-        save_products(products)
+        p = Product.query.get(pid)
+        if p:
+            db.session.delete(p)
+            db.session.commit()
         return redirect(url_for('admin_panel', tab='products'))
     elif action == 'del_order':
         oid = request.args.get('id')
-        orders = [o for o in orders if o.get('id') != oid]
-        save_orders(orders)
+        o = Order.query.get(oid)
+        if o:
+            db.session.delete(o)
+            db.session.commit()
         return redirect(url_for('admin_panel', tab='orders'))
 
     tab = request.args.get('tab', 'orders')
     edit_id = request.args.get('edit_id', type=int)
     edit_product_obj = None
     if edit_id:
-        edit_product_obj = next((p for p in products if p['id'] == edit_id), None)
+        p_db = Product.query.get(edit_id)
+        if p_db:
+            edit_product_obj = p_db.to_dict()
         
     return render_template_string('''
     <!DOCTYPE html>
