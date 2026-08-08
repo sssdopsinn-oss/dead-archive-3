@@ -17,7 +17,8 @@ def load_products():
                 data = json.load(f)
                 if isinstance(data, list):
                     return data
-        except:
+        except Exception as e:
+            print(f"Ошибка чтения products.json: {e}")
             pass
     # Дефолтные товары, если файла еще нет
     return [
@@ -28,6 +29,7 @@ def load_products():
             "price_eur": 60, 
             "price_uah": 3050, 
             "images": ["https://kappa.lol/zlEwzv", "https://picsum.photos/id/1015/800/800"], 
+            "colors": ["Черный", "Серый"],
             "description": "Оверсайз силуэт. Тяжелый премиальный хлопок. Архивный графический принт на груди.", 
             "sizes": ["S", "M", "L", "XL"]
         },
@@ -38,28 +40,9 @@ def load_products():
             "price_eur": 60, 
             "price_uah": 3050, 
             "images": ["https://kappa.lol/34ieZw", "https://kappa.lol/gJtShU"], 
+            "colors": ["Черный"],
             "description": "Классический свободный крой. Дистресс-эффект с потертостями по краям. Фирменная вышивка на спине.", 
             "sizes": ["S", "M", "L"]
-        },
-        {
-            "id": 3, 
-            "name": "ФУТБОЛКА VET@MENTS VITAL EXISTENCE", 
-            "category": "tshirts", 
-            "price_eur": 60, 
-            "price_uah": 3050, 
-            "images": ["https://kappa.lol/61Hm4e"], 
-            "description": "Готический шрифтовой принт. Заниженная линия плеча, плотный воротник.", 
-            "sizes": ["M", "L", "XL"]
-        },
-        {
-            "id": 5, 
-            "name": "СЕРЕБРЯНАЯ ЦЕПЬ С КРЕСТОМ", 
-            "category": "accessories", 
-            "price_eur": 85, 
-            "price_uah": 4100, 
-            "images": ["https://picsum.photos/id/180/800/800"], 
-            "description": "Массивное серебро .925 пробы. Детализированный авангардный крест в готическом стиле.", 
-            "sizes": ["ONE SIZE"]
         }
     ]
 
@@ -81,9 +64,6 @@ def load_orders():
 def save_orders(orders):
     with open(ORDERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(orders, f, ensure_ascii=False, indent=4)
-
-app.products_data = load_products()
-app.orders_data = load_orders()
 
 ACTIVE_SESSIONS = {}
 ONLINE_TIMEOUT = 10
@@ -125,8 +105,6 @@ HTML_HEADER = """
     .blood-logo:hover { color: #ef4444 !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.9); }
     .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-    .spinner { border: 3px solid rgba(255, 255, 255, 0.1); border-radius: 50%; border-top: 3px solid #fff; width: 22px; height: 22px; animation: spin 0.6s linear infinite; display: inline-block; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #020202; }
     ::-webkit-scrollbar-thumb { background: #18181b; border: 1px solid #27272a; }
@@ -232,11 +210,12 @@ HTML_FOOTER = """
         const div = document.createElement('div');
         div.className = "flex gap-6 border-b border-zinc-900 pb-6 items-center fade-in";
         div.innerHTML = `
-          <img src="${item.images[0]}" class="w-16 h-20 object-cover border border-zinc-800">
+          <img src="${item.images && item.images[0] ? item.images[0] : ''}" class="w-16 h-20 object-cover border border-zinc-800">
           <div class="flex-1 min-w-0">
             <p class="font-black text-sm tracking-wider text-zinc-100 truncate uppercase">${item.name}</p>
             <p class="text-zinc-300 text-sm mt-1 font-bold">${item.price_eur} EUR</p>
-            <p class="text-xs text-zinc-400 tracking-wider mt-2 font-bold uppercase">РАЗМЕР // [${item.selectedSize}]</p>
+            <p class="text-xs text-zinc-400 tracking-wider mt-1 font-bold uppercase">РАЗМЕР // [${item.selectedSize}]</p>
+            ${item.selectedColor ? `<p class="text-xs text-zinc-400 tracking-wider mt-0.5 font-bold uppercase">ЦВЕТ // [${item.selectedColor}]</p>` : ''}
           </div>
           <button onclick="removeFromCart(${i})" class="text-zinc-500 hover:text-zinc-100 text-2xl px-2">✕</button>
         `;
@@ -316,6 +295,7 @@ def home():
 
 @app.route('/shop')
 def shop():
+    products = load_products()
     return render_template_string(HTML_HEADER + '''
   <section class="pt-40 pb-24 px-6 max-w-7xl mx-auto">
     <h2 class="text-3xl gothic text-center mb-16 tracking-[0.3em] text-zinc-100">КОЛЛЕКЦИЯ</h2>
@@ -324,6 +304,8 @@ def shop():
   <script>
     const products = {{ products|tojson|safe }};
     const selectedSizes = {};
+    const selectedColors = {};
+    const currentImageIndices = {};
     
     function selectSize(id, sz, btn) {
       selectedSizes[id] = sz;
@@ -338,25 +320,67 @@ def shop():
       btn.classList.add('bg-zinc-100', 'text-black', 'border-zinc-100');
     }
 
+    function selectColor(id, col, btn) {
+      selectedColors[id] = col;
+      document.querySelectorAll('.color-btn-' + id).forEach(b => {
+        b.classList.remove('bg-zinc-100', 'text-black', 'border-zinc-100');
+        b.classList.add('bg-zinc-900', 'text-zinc-300', 'border-zinc-700');
+      });
+      btn.classList.remove('bg-zinc-900', 'text-zinc-300', 'border-zinc-700');
+      btn.classList.add('bg-zinc-100', 'text-black', 'border-zinc-100');
+    }
+
+    function changeImage(id, index) {
+      currentImageIndices[id] = index;
+      const p = products.find(x => x.id === id);
+      if (p && p.images[index]) {
+        const imgEl = document.getElementById('product-img-' + id);
+        if (imgEl) imgEl.src = p.images[index];
+      }
+    }
+
     function renderProducts() {
       const grid = document.getElementById('grid');
       grid.innerHTML = '';
       products.forEach(p => {
+        currentImageIndices[p.id] = 0;
         const div = document.createElement('div');
         div.className = "bg-zinc-950 border border-zinc-800 p-5 flex flex-col justify-between";
         
         let sizesHtml = '<div class="flex flex-wrap gap-2 mt-3">';
-        p.sizes.forEach(sz => {
-          sizesHtml += `<button onclick="selectSize(${p.id}, '${sz}', this)" class="size-btn-${p.id} px-3 py-1 text-xs border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors">${sz}</button>`;
-        });
+        if (p.sizes && p.sizes.length > 0) {
+          p.sizes.forEach(sz => {
+            sizesHtml += `<button onclick="selectSize(${p.id}, '${sz}', this)" class="size-btn-${p.id} px-3 py-1 text-xs border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors">${sz}</button>`;
+          });
+        }
         sizesHtml += '</div>';
+
+        let colorsHtml = '';
+        if (p.colors && p.colors.length > 0) {
+          colorsHtml += '<div class="flex flex-wrap gap-2 mt-3"><span class="w-full text-[10px] font-bold text-zinc-500 uppercase">Цвет:</span>';
+          p.colors.forEach(col => {
+            colorsHtml += `<button onclick="selectColor(${p.id}, '${col}', this)" class="color-btn-${p.id} px-3 py-1 text-xs border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors uppercase">${col}</button>`;
+          });
+          colorsHtml += '</div>';
+        }
+
+        let thumbsHtml = '';
+        if (p.images && p.images.length > 1) {
+          thumbsHtml += '<div class="flex gap-2 mt-2">';
+          p.images.forEach((img, idx) => {
+            thumbsHtml += `<img src="${img}" onclick="changeImage(${p.id}, ${idx})" class="w-10 h-12 object-cover border border-zinc-800 cursor-pointer hover:border-zinc-400 transition-all">`;
+          });
+          thumbsHtml += '</div>';
+        }
 
         div.innerHTML = `
           <div>
-            <img src="${p.images[0]}" class="w-full h-80 object-cover border border-zinc-800">
+            <img id="product-img-${p.id}" src="${p.images && p.images[0] ? p.images[0] : ''}" class="w-full h-80 object-cover border border-zinc-800">
+            ${thumbsHtml}
             <h3 class="text-sm font-black mt-4 text-zinc-100 uppercase">${p.name}</h3>
             <p class="text-sm text-zinc-300 mt-1 font-bold">${p.price_eur} EUR</p>
-            <p class="text-xs text-zinc-400 mt-2">${p.description}</p>
+            <p class="text-xs text-zinc-400 mt-2">${p.description || ''}</p>
+            ${colorsHtml}
             ${sizesHtml}
             <p id="error-${p.id}" class="text-red-500 text-[10px] font-bold mt-2 hidden uppercase tracking-wider">⚠ ВЫБЕРИТЕ РАЗМЕР</p>
           </div>
@@ -369,14 +393,15 @@ def shop():
     function addToCart(id) {
       const p = products.find(x => x.id === id);
       const sz = selectedSizes[id];
+      const col = selectedColors[id] || (p.colors && p.colors[0] ? p.colors[0] : '');
       
-      if (!sz) {
+      if (!sz && p.sizes && p.sizes.length > 0) {
         const errEl = document.getElementById('error-' + id);
         if (errEl) errEl.classList.remove('hidden');
         return;
       }
 
-      cart.push({ ...p, selectedSize: sz });
+      cart.push({ ...p, selectedSize: sz || 'ONE SIZE', selectedColor: col });
       localStorage.setItem('cart', JSON.stringify(cart));
       updateCartUI();
       toggleCart();
@@ -384,7 +409,7 @@ def shop():
 
     window.addEventListener('DOMContentLoaded', renderProducts);
   </script>
-''' + HTML_FOOTER, products=app.products_data)
+''' + HTML_FOOTER, products=products)
 
 @app.route('/lookbook')
 def lookbook():
@@ -409,17 +434,18 @@ def lookbook():
 def create_order():
     data = request.get_json() or {}
     order_id = "ORD-" + str(int(time.time()))[-5:]
+    orders = load_orders()
     order_record = {
         "id": order_id,
         "items": data.get("items", []),
         "contacts": data.get("contacts", {}),
         "time": time.strftime("%Y-%m-%d %H:%M:%S")
     }
-    app.orders_data.append(order_record)
-    save_orders(app.orders_data)
+    orders.append(order_record)
+    save_orders(orders)
     return jsonify({"success": True, "order_id": order_id})
 
-ADMIN_PASSWORD = "0879385"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "0879385")
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -467,14 +493,29 @@ def add_product():
         return redirect(url_for('admin_login'))
     
     try:
-        new_id = max([p['id'] for p in app.products_data], default=0) + 1
+        products = load_products()
+        new_id = max([p['id'] for p in products], default=0) + 1
         name = request.form.get('name')
         price_eur = int(request.form.get('price_eur', 0))
         price_uah = int(request.form.get('price_uah', 0))
         category = request.form.get('category')
-        image = request.form.get('image')
+        
+        # Сбор картинок (до 3 штук)
+        img1 = request.form.get('image_1', '').strip()
+        img2 = request.form.get('image_2', '').strip()
+        img3 = request.form.get('image_3', '').strip()
+        images = [i for i in [img1, img2, img3] if i]
+        if not images:
+            images = ["https://picsum.photos/id/1015/800/800"]
+
+        # Сбор цветов
+        colors_str = request.form.get('colors', 'Черный')
+        colors = [c.strip() for c in colors_str.split(',') if c.strip()]
+
+        # Сбор размеров
         sizes_str = request.form.get('sizes', 'S, M, L, XL')
-        sizes = [s.strip() for s in sizes_str.split(',')]
+        sizes = [s.strip() for s in sizes_str.split(',') if s.strip()]
+        
         description = request.form.get('description', '')
 
         new_item = {
@@ -483,12 +524,13 @@ def add_product():
             "category": category,
             "price_eur": price_eur,
             "price_uah": price_uah,
-            "images": [image],
+            "images": images,
+            "colors": colors,
             "description": description,
             "sizes": sizes
         }
-        app.products_data.append(new_item)
-        save_products(app.products_data)
+        products.append(new_item)
+        save_products(products)
     except Exception as e:
         print("Error adding product:", e)
 
@@ -501,21 +543,35 @@ def edit_product():
     
     try:
         pid = int(request.form.get('id', 0))
-        for p in app.products_data:
+        products = load_products()
+        for p in products:
             if p['id'] == pid:
                 p['name'] = request.form.get('name')
                 p['price_eur'] = int(request.form.get('price_eur', 0))
                 p['price_uah'] = int(request.form.get('price_uah', 0))
                 p['category'] = request.form.get('category')
-                img_url = request.form.get('image')
-                if img_url:
-                    p['images'] = [img_url]
+                
+                # Обновление картинок
+                img1 = request.form.get('image_1', '').strip()
+                img2 = request.form.get('image_2', '').strip()
+                img3 = request.form.get('image_3', '').strip()
+                new_images = [i for i in [img1, img2, img3] if i]
+                if new_images:
+                    p['images'] = new_images
+
+                # Обновление цветов
+                colors_str = request.form.get('colors', '')
+                if colors_str:
+                    p['colors'] = [c.strip() for c in colors_str.split(',') if c.strip()]
+
+                # Обновление размеров
                 sizes_str = request.form.get('sizes', '')
                 if sizes_str:
-                    p['sizes'] = [s.strip() for s in sizes_str.split(',')]
+                    p['sizes'] = [s.strip() for s in sizes_str.split(',') if s.strip()]
+                    
                 p['description'] = request.form.get('description', '')
                 break
-        save_products(app.products_data)
+        save_products(products)
     except Exception as e:
         print("Error editing product:", e)
 
@@ -527,23 +583,26 @@ def admin_panel():
     if not session.get('is_admin'):
         return redirect(url_for('admin_login'))
     
+    products = load_products()
+    orders = load_orders()
+
     action = request.args.get('action')
     if action == 'del_product':
         pid = int(request.args.get('id', 0))
-        app.products_data = [p for p in app.products_data if p['id'] != pid]
-        save_products(app.products_data)
+        products = [p for p in products if p['id'] != pid]
+        save_products(products)
         return redirect(url_for('admin_panel', tab='products'))
     elif action == 'del_order':
         oid = request.args.get('id')
-        app.orders_data = [o for o in app.orders_data if o.get('id') != oid]
-        save_orders(app.orders_data)
+        orders = [o for o in orders if o.get('id') != oid]
+        save_orders(orders)
         return redirect(url_for('admin_panel', tab='orders'))
 
     tab = request.args.get('tab', 'orders')
     edit_id = request.args.get('edit_id', type=int)
     edit_product_obj = None
     if edit_id:
-        edit_product_obj = next((p for p in app.products_data if p['id'] == edit_id), None)
+        edit_product_obj = next((p for p in products if p['id'] == edit_id), None)
         
     return render_template_string('''
     <!DOCTYPE html>
@@ -595,7 +654,7 @@ def admin_panel():
                     <p class="text-[10px] font-black text-zinc-500 uppercase mb-2">Состав заказа:</p>
                     <ul class="space-y-1 text-xs text-zinc-300">
                       {% for item in o.get('items', []) %}
-                      <li>• {{ item.get('name', 'Товар') }} — <b>{{ item.get('selectedSize', '-') }}</b> ({{ item.get('price_eur', 0) }} EUR)</li>
+                      <li>• {{ item.get('name', 'Товар') }} — <b>РАЗМЕР: {{ item.get('selectedSize', '-') }}</b> {% if item.get('selectedColor') %}| <b>ЦВЕТ: {{ item.get('selectedColor') }}</b>{% endif %} ({{ item.get('price_eur', 0) }} EUR)</li>
                       {% endfor %}
                     </ul>
                   </div>
@@ -639,9 +698,15 @@ def admin_panel():
                     <option value="accessories" {% if edit_product_obj.category == 'accessories' %}selected{% endif %}>Аксессуары (accessories)</option>
                   </select>
                 </div>
+                <div class="space-y-3">
+                  <label class="block text-[11px] font-black text-zinc-400 uppercase">Ссылки на фотографии (до 3 штук)</label>
+                  <input type="text" name="image_1" value="{{ edit_product_obj.images[0] if edit_product_obj.images|length > 0 else '' }}" placeholder="Фото 1 (Основная)" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-2.5 text-sm text-zinc-100">
+                  <input type="text" name="image_2" value="{{ edit_product_obj.images[1] if edit_product_obj.images|length > 1 else '' }}" placeholder="Фото 2 (Необязательно)" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-2.5 text-sm text-zinc-100">
+                  <input type="text" name="image_3" value="{{ edit_product_obj.images[2] if edit_product_obj.images|length > 2 else '' }}" placeholder="Фото 3 (Необязательно)" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-2.5 text-sm text-zinc-100">
+                </div>
                 <div>
-                  <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Ссылка на картинку (URL)</label>
-                  <input type="text" name="image" value="{{ edit_product_obj.images[0] }}" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
+                  <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Цвета (через запятую)</label>
+                  <input type="text" name="colors" value="{{ edit_product_obj.colors|join(', ') if edit_product_obj.colors else 'Черный' }}" placeholder="Черный, Белый, Серый" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
                 </div>
                 <div>
                   <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Размеры (через запятую)</label>
@@ -661,10 +726,13 @@ def admin_panel():
             {% for p in products %}
             <div class="bg-zinc-950 border border-zinc-800 p-4 flex flex-col justify-between">
               <div>
-                <img src="{{ p.images[0] }}" class="w-full h-48 object-cover border border-zinc-800 mb-3">
+                <img src="{{ p.images[0] if p.images else '' }}" class="w-full h-48 object-cover border border-zinc-800 mb-3">
                 <h3 class="text-xs font-black text-zinc-100 uppercase">{{ p.name }}</h3>
                 <p class="text-xs text-zinc-400 mt-1">{{ p.price_eur }} EUR</p>
                 <p class="text-[11px] text-zinc-500 mt-1">Категория: {{ p.category }}</p>
+                {% if p.colors %}
+                <p class="text-[11px] text-zinc-400 mt-1">Цвета: {{ p.colors|join(', ') }}</p>
+                {% endif %}
               </div>
               <div class="mt-6 flex gap-2">
                 <a href="/admin?tab=products&edit_id={{ p.id }}" class="flex-1 text-center py-2 bg-zinc-100 text-black text-xs font-bold hover:bg-white uppercase">ИЗМЕНИТЬ</a>
@@ -699,9 +767,15 @@ def admin_panel():
                 <option value="accessories">Аксессуары (accessories)</option>
               </select>
             </div>
+            <div class="space-y-3">
+              <label class="block text-[11px] font-black text-zinc-400 uppercase">Ссылки на фотографии (до 3 штук)</label>
+              <input type="text" name="image_1" placeholder="Фото 1 URL (Основная)" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-2.5 text-sm text-zinc-100">
+              <input type="text" name="image_2" placeholder="Фото 2 URL (Необязательно)" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-2.5 text-sm text-zinc-100">
+              <input type="text" name="image_3" placeholder="Фото 3 URL (Необязательно)" class="w-full bg-zinc-900 border border-zinc-700 px-4 py-2.5 text-sm text-zinc-100">
+            </div>
             <div>
-              <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Ссылка на картинку (URL)</label>
-              <input type="text" name="image" placeholder="https://..." required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
+              <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Цвета (через запятую)</label>
+              <input type="text" name="colors" value="Черный, Серый" placeholder="Черный, Белый" required class="w-full bg-zinc-900 border border-zinc-700 px-4 py-3 text-sm text-zinc-100">
             </div>
             <div>
               <label class="block text-[11px] font-black text-zinc-400 mb-2 uppercase">Размеры (через запятую)</label>
@@ -718,7 +792,7 @@ def admin_panel():
       </div>
     </body>
     </html>
-    ''', tab=tab, orders=app.orders_data, products=app.products_data, edit_product_obj=edit_product_obj)
+    ''', tab=tab, orders=orders, products=products, edit_product_obj=edit_product_obj)
 
 if __name__ == '__main__':
     app.run(debug=True)
